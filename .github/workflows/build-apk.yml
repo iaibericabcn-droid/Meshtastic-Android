@@ -64,26 +64,46 @@ jobs:
     name: Build Signed F-Droid Release APK
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    if: ${{ github.event_name == 'workflow_dispatch' && secrets.KEYSTORE_PROPERTIES != '' }}
+    if: github.event_name == 'workflow_dispatch'
     steps:
+      # `secrets` isn't a valid context in a job-level `if:`, so presence is
+      # checked here (where `secrets` IS available) and later steps are
+      # guarded on this step's output instead.
+      - name: Check signing secrets are present
+        id: check
+        env:
+          KEYSTORE_PROPERTIES: ${{ secrets.KEYSTORE_PROPERTIES }}
+        run: |
+          if [ -n "$KEYSTORE_PROPERTIES" ]; then
+            echo "has_secrets=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_secrets=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::KEYSTORE_PROPERTIES secret not set - skipping signed release build."
+          fi
+
       - name: Checkout code
+        if: steps.check.outputs.has_secrets == 'true'
         uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
       - name: Set up JDK 25
+        if: steps.check.outputs.has_secrets == 'true'
         uses: actions/setup-java@v5
         with:
           java-version: '25'
           distribution: 'temurin'
 
       - name: Validate Gradle Wrapper
+        if: steps.check.outputs.has_secrets == 'true'
         uses: gradle/actions/wrapper-validation@v6
 
       - name: Setup Gradle
+        if: steps.check.outputs.has_secrets == 'true'
         uses: gradle/actions/setup-gradle@v6
 
       - name: Write signing config
+        if: steps.check.outputs.has_secrets == 'true'
         env:
           KEYSTORE: ${{ secrets.KEYSTORE }}
           KEYSTORE_FILENAME: ${{ secrets.KEYSTORE_FILENAME }}
@@ -93,6 +113,7 @@ jobs:
           echo "$KEYSTORE_PROPERTIES" > keystore.properties
 
       - name: Build F-Droid release APK
+        if: steps.check.outputs.has_secrets == 'true'
         run: ./gradlew androidApp:assembleFdroidRelease -Pci=true --parallel -Dorg.gradle.isolated-projects=false
 
       - name: Remove signing material
@@ -100,6 +121,7 @@ jobs:
         run: rm -f keystore.properties androidApp/*.jks
 
       - name: Upload release APK
+        if: steps.check.outputs.has_secrets == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: app-fdroid-release-apk
